@@ -4,6 +4,18 @@ const router = express.Router();
 // Assuming that isLoggedIn is already imported from auth.js
 const { isLoggedIn } = require("./auth");
 
+const app = express();
+const cors = require('cors');
+const axios = require('axios');
+const cookieParser = require("cookie-parser");
+
+app.use(cors({
+    origin: '*', // Allow only your frontend
+    credentials: true, // Allow cookies and other credentials
+}));
+app.use(cookieParser());
+axios.defaults.withCredentials = true;
+
 // Endpoint to get a user's headline
 router.get("/headline/:user?", isLoggedIn, async (req, res) => {
     // Get the username from the route params, or use the logged-in user if no user param is provided
@@ -59,124 +71,236 @@ router.put("/headline", isLoggedIn, async (req, res) => {
 });
 
 //stubs
-router.get("/email/:user?", (req, res) => {
-    const { user } = req.params;
+router.get("/email/:user?", isLoggedIn, async (req, res) => {
+    const username = req.params.user || req.user;
 
-    // Simulated response for stub
-    if (user) {
-        res.json({
-            username: user,
-            email: `${user}@example.com`, // Stubbed email address
+    try {
+        // Find the user in the database by username
+        const profile = await Profile.findOne({accountName: username});
+
+        if (!profile) {
+            return res.status(404).json({message: "User not found."});
+        }
+
+        // Return the user's headline, defaulting to "Happy" if no headline is set
+        const email = profile.email;
+
+        res.status(200).json({
+            username: profile.accountName,
+            email:email,
         });
-    } else {
-        res.status(400).json({ message: "Username parameter is required." });
+    } catch (err) {
+        console.error("Error fetching email:", err);
+        res.status(500).json({message: "Server error."});
     }
 });
 
-router.put("/email", (req, res) => {
-    const { email } = req.body;
+router.put("/email", isLoggedIn, async (req, res) => {
+    const {email} = req.body;
 
-    // Check for the new email in the request body
+    // Validate input
     if (!email) {
-        return res.status(400).json({ message: "New email address is required." });
+        return res.status(400).json({message: "Email is required."});
     }
 
-    // Simulated response for stub
-    res.json({
-        username: "loggedInUser", // Replace with actual logged-in username
-        email, // Return the new email address
-    });
+    try {
+        // Update the headline in the profiles collection
+        const updatedProfile = await Profile.findOneAndUpdate(
+            {accountName: req.user}, // req.user comes from isLoggedIn middleware
+            {$set: {email:email}},// Update the headline field
+            {new: true} // Return the updated document
+        );
+
+        if (!updatedProfile) {
+            return res.status(404).json({message: "User profile not found."});
+        }
+
+        // Respond with the updated headline
+        res.status(200).json({username: updatedProfile.accountName, email: updatedProfile.email});
+    } catch (err) {
+        console.error("Error updating email:", err);
+        res.status(500).json({message: "Server error."});
+    }
 });
 
-router.get("/zipcode/:user?", (req, res) => {
-    const { user } = req.params;
+router.get("/zipcode/:user?", isLoggedIn,async (req, res) => {
+    const username = req.params.user || req.user;
 
-    if (user) {
-        res.json({
-            username: user,
-            zipcode: "12345", // Stubbed ZIP code
+    try {
+        // Find the user in the database by username
+        const profile = await Profile.findOne({accountName: username});
+
+        if (!profile) {
+            return res.status(404).json({message: "User not found."});
+        }
+
+        // Return the user's headline, defaulting to "Happy" if no headline is set
+        const zipcode = profile.zipcode;
+
+        res.status(200).json({
+            username: profile.accountName,
+            zipcode:zipcode,
         });
-    } else {
-        res.status(400).json({ message: "Username parameter is required." });
+    } catch (err) {
+        console.error("Error fetching email:", err);
+        res.status(500).json({message: "Server error."});
     }
 });
 
-router.put("/zipcode", (req, res) => {
-    const { zipcode } = req.body;
+router.put("/zipcode", isLoggedIn, async (req, res) => {
+    const {zipcode} = req.body;
 
+    // Validate input
     if (!zipcode) {
-        return res.status(400).json({ message: "New ZIP code is required." });
+        return res.status(400).json({message: "Headline is required."});
     }
 
-    res.json({
-        username: "loggedInUser", // Replace with actual logged-in username
-        zipcode, // Return the updated ZIP code
-    });
+    try {
+        // Update the headline in the profiles collection
+        const updatedProfile = await Profile.findOneAndUpdate(
+            {accountName: req.user}, // req.user comes from isLoggedIn middleware
+            {$set: {zipcode: zipcode}},// Update the headline field
+            {new: true} // Return the updated document
+        );
+
+        if (!updatedProfile) {
+            return res.status(404).json({message: "User profile not found."});
+        }
+
+        // Respond with the updated headline
+        res.status(200).json({username: updatedProfile.accountName, zipcode: updatedProfile.zipcode});
+    } catch (err) {
+        console.error("Error updating zipcode:", err);
+        res.status(500).json({message: "Server error."});
+    }
 });
 
-router.get("/dob/:user?", (req, res) => {
-    const { user } = req.params;
+router.get("/dob/:user?", isLoggedIn, async (req, res) => {
+    const username = req.params.user || req.user;
 
-    if (user) {
-        res.json({
-            username: user,
-            dob: new Date().getTime(), // Stubbed date of birth in milliseconds
+    try {
+        // Find the user in the database by username
+        const profile = await Profile.findOne({accountName: username});
+
+        if (!profile) {
+            return res.status(404).json({message: "User not found."});
+        }
+
+        // Return the user's headline, defaulting to "Happy" if no headline is set
+        const dob = profile.dob;
+
+        res.status(200).json({
+            username: profile.accountName,
+            dob:dob,
         });
-    } else {
-        res.status(400).json({ message: "Username parameter is required." });
+    } catch (err) {
+        console.error("Error fetching email:", err);
+        res.status(500).json({message: "Server error."});
     }
 });
 
-router.get("/avatar/:user?", (req, res) => {
-    const { user } = req.params;
+router.get("/avatar/:user?", isLoggedIn, async (req, res) => {
+    const username = req.params.user || req.user;
 
-    if (user) {
-        res.json({
-            username: user,
-            avatar: "https://example.com/avatar.jpg", // Stubbed avatar URL
+    try {
+        // Find the user in the database by username
+        const profile = await Profile.findOne({accountName: username});
+
+        if (!profile) {
+            return res.status(404).json({message: "User not found."});
+        }
+
+        // Return the user's headline, defaulting to "Happy" if no headline is set
+        const url = profile.picture;
+
+        res.status(200).json({
+            username: profile.accountName,
+            url: url,
         });
-    } else {
-        res.status(400).json({ message: "Username parameter is required." });
+    } catch (err) {
+        console.error("Error fetching avatar:", err);
+        res.status(500).json({message: "Server error."});
     }
 });
 
-router.put("/avatar", (req, res) => {
-    const { avatar } = req.body;
+router.put("/avatar", isLoggedIn, async (req, res) => {
+    const {url} = req.body;
 
-    if (!avatar) {
-        return res.status(400).json({ message: "New avatar URL is required." });
+    // Validate input
+    if (!url) {
+        return res.status(400).json({message: "Image path is required."});
     }
 
-    res.json({
-        username: "loggedInUser", // Replace with actual logged-in username
-        avatar, // Return the updated avatar URL
-    });
+    try {
+        // Update the headline in the profiles collection
+        const updatedProfile = await Profile.findOneAndUpdate(
+            {accountName: req.user}, // req.user comes from isLoggedIn middleware
+            {$set: {picture: url}},// Update the headline field
+            {new: true} // Return the updated document
+        );
+
+        if (!updatedProfile) {
+            return res.status(404).json({message: "User profile not found."});
+        }
+
+        // Respond with the updated headline
+        res.status(200).json({username: updatedProfile.accountName, url: updatedProfile.url});
+    } catch (err) {
+        console.error("Error updating phone:", err);
+        res.status(500).json({message: "Server error."});
+    }
 });
 
-router.get("/phone/:user?", (req, res) => {
-    const { user } = req.params;
+router.get("/phone/:user?", isLoggedIn, async (req, res) => {
+    const username = req.params.user || req.user;
 
-    if (user) {
-        res.json({
-            username: user,
-            phone: "123-456-7890", // Stubbed phone number
+    try {
+        // Find the user in the database by username
+        const profile = await Profile.findOne({accountName: username});
+
+        if (!profile) {
+            return res.status(404).json({message: "User not found."});
+        }
+
+        // Return the user's headline, defaulting to "Happy" if no headline is set
+        const phone = profile.phone;
+
+        res.status(200).json({
+            username: profile.accountName,
+            phone:phone,
         });
-    } else {
-        res.status(400).json({ message: "Username parameter is required." });
+    } catch (err) {
+        console.error("Error fetching email:", err);
+        res.status(500).json({message: "Server error."});
     }
 });
 
-router.put("/phone", (req, res) => {
-    const { phone } = req.body;
+router.put("/phone", isLoggedIn, async (req, res) => {
+    const {phone} = req.body;
 
+    // Validate input
     if (!phone) {
-        return res.status(400).json({ message: "New phone number is required." });
+        return res.status(400).json({message: "Phone is required."});
     }
 
-    res.json({
-        username: "loggedInUser", // Replace with actual logged-in username
-        phone, // Return the updated phone number
-    });
+    try {
+        // Update the headline in the profiles collection
+        const updatedProfile = await Profile.findOneAndUpdate(
+            {accountName: req.user}, // req.user comes from isLoggedIn middleware
+            {$set: {phone: phone}},// Update the headline field
+            {new: true} // Return the updated document
+        );
+
+        if (!updatedProfile) {
+            return res.status(404).json({message: "User profile not found."});
+        }
+
+        // Respond with the updated headline
+        res.status(200).json({username: updatedProfile.accountName, phone: updatedProfile.phone});
+    } catch (err) {
+        console.error("Error updating phone:", err);
+        res.status(500).json({message: "Server error."});
+    }
 });
 
 

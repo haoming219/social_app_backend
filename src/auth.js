@@ -5,6 +5,19 @@ const moment = require("moment");
 // const md5 = require('md5');
 const crypto = require("crypto");
 const router = express.Router();
+const app = express();
+const cors = require('cors');
+const axios = require('axios');
+const cookieParser = require("cookie-parser");
+
+app.use(cors({
+    origin: '*', // Allow only your frontend
+    credentials: true, // Allow cookies and other credentials
+}));
+app.use(cookieParser());
+
+
+axios.defaults.withCredentials = true;
 
 const sessionMap = new Map();
 const cookieKey = 'sid';
@@ -18,7 +31,7 @@ const userSchema = new mongoose.Schema({
 
 const profileSchema = new mongoose.Schema({
     accountName: { type: String, required: true },
-    displayName: { type: String, required: true },
+    displayName: { type: String},
     email: { type: String, required: true, unique: true },
     phone: { type: String, required: true },
     dob: { type: String, required: true },
@@ -27,7 +40,6 @@ const profileSchema = new mongoose.Schema({
     followedUsers: { type: [String], default: [] },
     picture: { type: String, default: "" }, // No picture initially
 });
-
 
 const User = mongoose.model("User", userSchema,'users');
 const Profile = mongoose.model("Profile", profileSchema,'profiles');
@@ -42,18 +54,22 @@ const isValidDOB = (dob) => {
 
 // Register Endpoint with Validation
 router.post("/register", async (req, res) => {
-    const { accountName, displayName, email, phone, dob, zipcode, password } = req.body;
+    const { accountName, displayName, email, phone, dob, picture, zipcode, password } = req.body;
 
     try {
         // Backend validation
         if (!isValidPhone(phone)) {
-            return res.status(400).json({ message: "Invalid phone number. Use format XXX-XXX-XXXX." });
+            return res.status(401).json({ message: "Invalid phone number. Use format XXX-XXX-XXXX." });
         }
         if (!isValidZipcode(zipcode)) {
-            return res.status(400).json({ message: "Invalid ZIP code. Use 5-digit or 5+4 format." });
+            return res.status(401).json({ message: "Invalid ZIP code. Use 5-digit or 5+4 format." });
         }
         if (!isValidDOB(dob)) {
-            return res.status(400).json({ message: "You must be at least 18 years old to register." });
+            return res.status(401).json({ message: "You must be at least 18 years old to register." });
+        }
+        const exist = await User.findOne({ accountName: accountName });
+        if (exist) {
+            return res.status(401).json({ message: "Account Name Already Exist." });
         }
 
         // Hash the password
@@ -76,14 +92,32 @@ router.post("/register", async (req, res) => {
             phone,
             dob,
             zipcode,
+            picture,
             statusMessage: "Hey, I am using RiceBook!", // Default status message
             followedUsers: [], // Empty list of followed users
-            picture: "", // No profile picture initially
+             // No profile picture initially
         });
 
         // Save the user in the database
         //
         await newProfile.save();
+
+        const sessionKey = crypto.randomBytes(16).toString("hex");
+        sessionMap.set(sessionKey, accountName);
+
+        // Enhanced cookie setting
+        res.cookie('sessionKey', sessionKey, {
+            maxAge: 3600 * 1000,
+            httpOnly: true,
+            sameSite: 'Lax', // Crucial for cross-site
+            secure: false, // Use secure in production
+            path: '/', // Ensure cookie is available app-wide
+            // domain: 'localhost' // Specify domain
+        });
+
+        // // Detailed logging
+        // console.log('Session Key Set:', sessionKey);
+        // console.log('Set-Cookie Header:', res.get('Set-Cookie'));
         res.status(201).json({ username: accountName, result: "success" });
     } catch (err) {
         console.error("Registration error:", err);
@@ -94,6 +128,8 @@ router.post("/register", async (req, res) => {
         }
     }
 });
+
+
 
 // Login Endpoint
 router.post("/login", async (req, res) => {
@@ -112,22 +148,27 @@ router.post("/login", async (req, res) => {
             return res.status(401).json({ message: "Invalid password." });
         }
 
-        // Generate a unique session key
         const sessionKey = crypto.randomBytes(16).toString("hex");
-
-        // Step 5: Store the session in the session map
         sessionMap.set(sessionKey, accountName);
 
-        // Step 6: Set a secure cookie with the session key
-        res.cookie(cookieKey, sessionKey, {
-            maxAge: 3600 * 1000, // 1 hour
-            httpOnly: true, // Prevents client-side JavaScript from accessing the cookie
-            sameSite: "None", // Required for cross-site cookies
-            secure: true, // Ensures the cookie is sent over HTTPS
+        // Enhanced cookie setting
+        res.cookie('sessionKey', sessionKey, {
+            maxAge: 3600 * 1000,
+            httpOnly: true,
+            sameSite: 'Lax', // Crucial for cross-site
+            secure: false, // Use secure in production
+            path: '/', // Ensure cookie is available app-wide
+            // domain: 'localhost' // Specify domain
         });
 
+        // Detailed logging
+        console.log('Session Key Set:', sessionKey);
+        console.log('Set-Cookie Header:', res.get('Set-Cookie'));
 
-        res.status(200).json({ username: accountName, result: "success" });
+        res.status(200).json({
+            username: accountName,
+            result: "success"
+        });
     } catch (err) {
         console.error("Login error:", err);
         res.status(500).json({ message: "Server error." });
@@ -135,17 +176,30 @@ router.post("/login", async (req, res) => {
 });
 
 function isLoggedIn(req, res, next) {
-    console.log("Cookies:", req.cookies);
-    const sessionKey = req.cookies?.sessionKey; // Access 'sessionKey' from cookies
-    console.log("Session Key from Cookie:", sessionKey);
-
-    if (!sessionKey || !sessionMap.has(sessionKey)) {
-        console.log("Session Map Contents:", sessionMap);
-        return res.status(401).json({ message: "Unauthorized: Please login first" });
+    const rawCookies = req.headers.cookie;
+    const cookieObj = {};
+    if (rawCookies) {
+        rawCookies.split(';').forEach(cookie => {
+            const [name, value] = cookie.trim().split('=');
+            cookieObj[name.trim()] = value;
+        });
     }
-
-    req.user = sessionMap.get(sessionKey); // Attach user info to the request object
-    next(); // Proceed to the next middleware or route handler
+    const sessionKey =
+        req.cookies?.sessionKey ||
+        cookieObj['sessionKey'];
+    if (!sessionKey || !sessionMap.has(sessionKey)) {
+        return res.status(401).json({
+            message: "Unauthorized",
+            receivedCookies: req.cookies,
+            sessionMapKeys: Array.from(sessionMap.keys())
+        });
+    }
+    //
+    // req.user = sessionMap.get(sessionKey);
+    const user = sessionMap.get(sessionKey);
+    req.user = user;
+    req.sessionKey = sessionKey;
+    next();
 }
 
 // Logout endpoint
@@ -176,18 +230,46 @@ router.put("/logout", (req, res) => {
 
 });
 
-//stub
-router.put("/password", (req, res) => {
-    const { password } = req.body;
+router.put('/password', isLoggedIn, async (req, res) => {
+    try {
+        // Ensure user is logged in (assuming you have authentication middleware)
+        if (!req.user) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
 
-    if (!password) {
-        return res.status(400).json({ message: "New password is required." });
+        const { password: newPassword } = req.body;
+        const username = req.user;
+
+        // Find the user
+        const user = await User.findOne({ accountName: username });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Generate new salt and hash
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+        const passwordLength = newPassword.length;
+
+        // Update user's password and salt
+        user.password = hashedPassword;
+        user.salt = salt;
+
+        // Save the updated user
+        await user.save();
+
+        // Respond with success
+        res.json({
+            username: username,
+            length: passwordLength,
+            result: 'success'
+        });
+
+    } catch (error) {
+        console.error('Password change error:', error);
+        res.status(500).json({ message: 'Error changing password' });
     }
-
-    res.json({
-        username: "loggedInUser", // Replace with actual logged-in username
-        result: "success", // Stubbed success response
-    });
 });
 
 

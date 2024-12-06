@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
+const cors = require("cors");
 const cookieParser = require("cookie-parser");
 
 const { router: authRoutes, isLoggedIn } = require("./src/auth");
@@ -9,12 +10,20 @@ const profileRoutes = require("./src/profile");
 const followingRoutes = require("./src/following");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 
 // Middleware
+
+
+
+app.use(cors({
+    origin: 'https://RicebookHaoming.surge.sh/', // Exact frontend origin
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(cookieParser());
 app.use(bodyParser.json());
-
 // MongoDB Connection
 const MONGO_URI = "mongodb+srv://yu2974201195:bYZ6g00JLt0lXzr2@cluster0.cx1db.mongodb.net/ricebook"
 ;

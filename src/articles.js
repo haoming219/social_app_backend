@@ -5,39 +5,49 @@ const router = express.Router();
 
 // Article schema definition
 const articleSchema = new mongoose.Schema({
-    pid: { type: Number, required: true, unique: true },
+    pid: { type: Number, required: true},
     author: { type: String, required: true },
+    title: { type: String, required: true },
     text: { type: String, required: true },
+    image: { type: String, default:"" },
     date: { type: Date, required: true, default: Date.now },
     comments: { type: Array, default: [] },
 });
 
 const Article = mongoose.model("Article", articleSchema);
 
-// Counter for generating unique pids (in-memory, consider using a more robust approach for production)
-let pidCounter = 1;
-
-// GET /articles - Fetch all articles
-// GET /articles or GET /articles/:id
-router.get("/articles/:id?", isLoggedIn, async (req, res) => {
-    const { id } = req.params;
-
+router.get("/articles", isLoggedIn, async (req, res) => {
     try {
-        if (id) {
-            // If an article ID is provided
-            const article = await Article.findOne({ pid: id });
-            if (!article) {
-                return res.status(404).json({ message: "Article not found." });
-            }
-            return res.status(200).json(article);
-        } else {
-            // If no ID is provided, fetch all articles for the logged-in user
-            const articles = await Article.find({ author: req.user });
-            res.status(200).json(articles);
-        }
+        // Extract followers from request body
+        const followersParam = req.query.followers;
+
+        // Convert comma-separated string to array
+        const followers = followersParam
+            ? followersParam.split(',').map(follower => follower.trim())
+            : [];
+        // Combine current user and followers into a single array of usernames
+        const usernames = [req.user, ...followers];
+
+        // Find articles from current user and their followers
+        const articles = await Article.find({
+            // Match articles where the author's username is in the list
+            'author': { $in: usernames }
+        })
+            .sort({ createdAt: -1 }) // Sort by most recent first
+            .populate('author', 'username profilePicture') // Populate author details
+            .lean(); // Convert to plain JavaScript object for better performance
+
+        // Return the articles
+        res.status(200).json({
+            articles,
+            totalArticles: articles.length
+        });
     } catch (err) {
         console.error("Error fetching articles:", err);
-        res.status(500).json({ message: "Server error." });
+        res.status(500).json({
+            message: "Server error while fetching articles",
+            error: err.message
+        });
     }
 });
 
@@ -45,12 +55,14 @@ router.get("/articles/:id?", isLoggedIn, async (req, res) => {
 // POST /article - Create a new article
 // POST /article
 router.post("/article", isLoggedIn, async (req, res) => {
-    const { text } = req.body;
+    const { title, text, url } = req.body;
 
     if (!text) {
         return res.status(400).json({ message: "Article text is required." });
     }
-
+    if (!title) {
+        return res.status(400).json({ message: "Article title is required." });
+    }
     try {
         // Fetch the latest article by the logged-in user and get its pid
         const lastArticle = await Article.findOne({ author: req.user })
@@ -63,7 +75,9 @@ router.post("/article", isLoggedIn, async (req, res) => {
         const newArticle = new Article({
             pid: newPid,
             author: req.user, // Author from isLoggedIn middleware
+            title,
             text,
+            image:url,
             date: new Date(), // Current timestamp
         });
 
@@ -77,28 +91,95 @@ router.post("/article", isLoggedIn, async (req, res) => {
     }
 });
 
-//stub
-router.put("/articles/:id", (req, res) => {
-    const { id } = req.params;
-    const { text, commentId } = req.body;
+router.put("/articles/:id", async (req, res) => {
+    try {
+        const postId = req.params.id; // Get the post ID from the URL
+        const username = req.user;
+        const { text, commentId } = req.body; // Get text and commentId from the request body
 
-    if (!text) {
-        return res.status(400).json({ message: "Text is required." });
+        // Validate input
+        if (!username || !text) {
+            return res.status(400).json({error: 'Username and text are required.'});
+        }
+
+        const objectId = new mongoose.Types.ObjectId(postId);
+
+        // Check if commentId is not provided (undefined or null)
+        if (commentId === undefined || commentId === null) {
+            const post = await Article.findById(objectId);
+
+            if (!post) {
+                return res.status(404).json({error: 'Post not found.'});
+            }
+
+            // Only allow update if the current user is the post author
+            if (post.author !== username) {
+                return res.status(403).json({error: 'You are not authorized to edit this post.'});
+            }
+
+            // Update the post text
+            const updatedPost = await Article.findByIdAndUpdate(
+                objectId,
+                { text }, // Update the post text
+                { new: true } // Return the updated document
+            );
+
+            return res.status(200).json(updatedPost);
+        }
+
+        // If commentId is -1, add a new comment
+        if (commentId === -1) {
+            const updatedPost = await Article.findByIdAndUpdate(
+                objectId,
+                {
+                    $push: {
+                        comments: {
+                            username,
+                            comment: text
+                        }
+                    }
+                }, // Add the new comment to the "comments" array
+                { new: true } // Return the updated document
+            );
+
+            if (!updatedPost) {
+                return res.status(404).json({error: 'Post not found.'});
+            }
+
+            return res.status(200).json(updatedPost);
+        }
+
+        if (commentId === 1) {
+            const updatedPost = await Article.findByIdAndUpdate(
+                objectId,
+                {
+                    $set: {
+                        'comments.$[elem].comment': text
+                    }
+                },
+                {
+                    arrayFilters: [{ 'elem.username': req.user}],
+                    new: true
+                } // Return the updated document
+            );
+
+            if (!updatedPost) {
+                return res.status(404).json({error: 'Post not found.'});
+            }
+
+            return res.status(200).json(updatedPost);
+        }
+
+        // If commentId is provided but not -1, handle it as a comment edit/update
+        // You can add additional logic here if needed
+
+        res.status(400).json({error: 'Invalid request.'});
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({error: 'Failed to process request.'});
     }
-
-    res.json({
-        articles: [
-            {
-                id, // Replace with actual article ID
-                author: "loggedInUser", // Replace with actual logged-in username
-                text, // New article or comment text
-                comments: commentId
-                    ? [{ commentId, text }] // Stubbed updated comment
-                    : [], // No comments in this case
-            },
-        ],
-    });
 });
+
 
 
 module.exports = {router,Article};
