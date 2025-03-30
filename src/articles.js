@@ -12,9 +12,11 @@ const articleSchema = new mongoose.Schema({
     image: { type: String, default:"" },
     date: { type: Date, required: true, default: Date.now },
     comments: { type: Array, default: [] },
+    likes: { type: [String], default: [] }
 });
 
 const Article = mongoose.model("Article", articleSchema);
+
 
 router.get("/articles", isLoggedIn, async (req, res) => {
     try {
@@ -88,6 +90,98 @@ router.post("/article", isLoggedIn, async (req, res) => {
     } catch (err) {
         console.error("Error creating article:", err);
         res.status(500).json({ message: "Server error." });
+    }
+});
+
+router.get("/articles/:id/likes", isLoggedIn, async (req, res) => {
+    try {
+        const articleId = req.params.id;
+        // 查询指定文章，只选择 likes 字段
+        const postId = new mongoose.Types.ObjectId(articleId);
+        const article = await Article.findById(postId).select("likes");
+
+        if (!article) {
+            return res.status(404).json({ message: "Posts not Found!" });
+        }
+
+        res.status(200).json({
+            likes: article.likes
+        });
+    } catch (err) {
+        console.error("获取 likes 失败:", err);
+        res.status(500).json({
+            message: "Errors: Obtain Likes Fails",
+            error: err.message
+        });
+    }
+});
+
+
+router.post("/articles/:id/likes", isLoggedIn, async (req, res) => {
+    try {
+        const articleId = req.params.id;
+        const { name } = req.body;
+
+        const postId = new mongoose.Types.ObjectId(articleId);
+
+        if (!name) {
+            return res.status(400).json({ message: "必须提供名字" });
+        }
+
+        // 使用 $addToSet 避免重复添加
+        const updatedArticle = await Article.findByIdAndUpdate(
+            postId,
+            { $addToSet: { likes: name } },
+            { new: true }
+        ).select("likes");
+
+        if (!updatedArticle) {
+            return res.status(404).json({ message: "文章未找到" });
+        }
+
+        res.status(200).json({
+            likes: updatedArticle.likes
+        });
+    } catch (err) {
+        console.error("添加 likes 失败:", err);
+        res.status(500).json({
+            message: "添加文章 likes 时服务器出错",
+            error: err.message
+        });
+    }
+});
+
+router.delete("/articles/:id/:name?/likes", isLoggedIn, async (req, res) => {
+    try {
+        const articleId = req.params.id;
+        const name = req.params.name
+
+        const postId = new mongoose.Types.ObjectId(articleId);
+
+        if (!name) {
+            return res.status(400).json({ message: "必须提供名字" });
+        }
+
+        // 使用 $pull 操作符从数组中移除指定名字
+        const updatedArticle = await Article.findByIdAndUpdate(
+            postId,
+            { $pull: { likes: name } },
+            { new: true }
+        ).select("likes");
+
+        if (!updatedArticle) {
+            return res.status(404).json({ message: "文章未找到" });
+        }
+
+        res.status(200).json({
+            likes: updatedArticle.likes
+        });
+    } catch (err) {
+        console.error("删除 likes 失败:", err);
+        res.status(500).json({
+            message: "删除文章 likes 时服务器出错",
+            error: err.message
+        });
     }
 });
 
@@ -180,6 +274,82 @@ router.put("/articles/:id", async (req, res) => {
     }
 });
 
+// 删除评论的路由
+router.delete("/articles/:id/comments/:commentIndex", async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const commentIndex = parseInt(req.params.commentIndex);
+        const username = req.user;
 
+        if (isNaN(commentIndex)) {
+            return res.status(400).json({ error: 'Invalid comment index.' });
+        }
+
+        const objectId = new mongoose.Types.ObjectId(postId);
+        
+        // 查找文章
+        const post = await Article.findById(objectId);
+        
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found.' });
+        }
+        
+        // 检查评论是否存在
+        if (!post.comments || commentIndex >= post.comments.length) {
+            return res.status(404).json({ error: 'Comment not found.' });
+        }
+        
+        // 检查当前用户是否是评论的作者
+        if (post.comments[commentIndex].username !== username) {
+            return res.status(403).json({ error: 'You can only delete your own comments.' });
+        }
+        
+        // 删除评论
+        post.comments.splice(commentIndex, 1);
+        
+        // 保存更新后的文章
+        await post.save();
+        
+        return res.status(200).json({ 
+            message: 'Comment deleted successfully.',
+            comments: post.comments 
+        });
+    } catch (error) {
+        console.error('Error deleting comment:', error);
+        res.status(500).json({ error: 'Failed to delete comment.' });
+    }
+});
+
+// 删除帖子的路由
+router.delete("/articles/:id", async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const username = req.user;
+
+        const objectId = new mongoose.Types.ObjectId(postId);
+        
+        // 查找文章
+        const post = await Article.findById(objectId);
+        
+        if (!post) {
+            return res.status(404).json({ error: '帖子未找到' });
+        }
+        
+        // 检查当前用户是否是帖子的作者
+        if (post.author !== username) {
+            return res.status(403).json({ error: '您只能删除自己的帖子' });
+        }
+        
+        // 删除帖子
+        await Article.findByIdAndDelete(objectId);
+        
+        return res.status(200).json({ 
+            message: '帖子删除成功'
+        });
+    } catch (error) {
+        console.error('删除帖子时出错:', error);
+        res.status(500).json({ error: '删除帖子失败' });
+    }
+});
 
 module.exports = {router,Article};

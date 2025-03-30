@@ -109,8 +109,8 @@ router.post("/register", async (req, res) => {
         res.cookie('sessionKey', sessionKey, {
             maxAge: 3600 * 1000,
             httpOnly: true,
-            sameSite: 'Lax', // Crucial for cross-site
-            secure: false, // Use secure in production
+            sameSite: 'None', // Crucial for cross-site
+            secure: true, // Use secure in production
             path: '/', // Ensure cookie is available app-wide
             // domain: 'localhost' // Specify domain
         });
@@ -155,8 +155,8 @@ router.post("/login", async (req, res) => {
         res.cookie('sessionKey', sessionKey, {
             maxAge: 3600 * 1000,
             httpOnly: true,
-            sameSite: 'Lax', // Crucial for cross-site
-            secure: false, // Use secure in production
+            sameSite: 'None', // Crucial for cross-site
+            secure: true,// Use secure in production
             path: '/', // Ensure cookie is available app-wide
             // domain: 'localhost' // Specify domain
         });

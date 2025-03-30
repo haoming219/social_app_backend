@@ -17,7 +17,8 @@ const PORT = process.env.PORT || 4000;
 
 
 app.use(cors({
-    origin: 'https://social-web-ricebook.surge.sh', // Exact frontend origin
+    // origin: 'https://social-web-ricebook.surge.sh', // Exact frontend origin
+    origin: 'http://localhost:3000', // Exact frontend origin
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization']
